@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+r#!/usr/bin/env python3
 """
 GitHub OAuth App Creator - Production Grade Automation
 ======================================================
@@ -42,6 +42,19 @@ from playwright.sync_api import (
 import platform
 import subprocess
 import re
+
+# Try to import AuditLogger, but don't fail if dependencies missing (e.g. during simple unit tests)
+try:
+    from github_audit_logger import AuditLogger
+    HAS_AUDIT_LOGGER = True
+except ImportError:
+    HAS_AUDIT_LOGGER = False
+    logger = logging.getLogger("auth_automator") 
+    # Fallback to avoid breaking if file missing
+    class AuditLogger:
+        def __init__(self, *args): pass
+        def log_credential(self, *args, **kwargs): pass
+        def read_log(self): return []
 
 
 # Configure logging to look nice in the terminal
@@ -594,9 +607,14 @@ class GitHubAutomator:
         try:
             # Navigate to the app's settings page
             logger.info(f"   Navigating to {app_url}...")
-            self.page.goto(app_url, timeout=20000)
+            # Use domcontentloaded for faster interaction, networkidle might be too strict
+            response = self.page.goto(app_url, timeout=20000, wait_until="domcontentloaded")
+            if not response:
+                logger.warning("   Navigation response was empty, but proceeding...")
+            
+            # Check if we got redirected to login or sudo mode
+            time.sleep(1)
             self.handle_sudo_mode()
-
             time.sleep(1)
 
             # Scroll to bottom where delete button usually is
@@ -676,20 +694,68 @@ class GitHubAutomator:
 
         self.handle_sudo_mode()
 
+        self.handle_sudo_mode()
+
         # Robustly wait for the form
         self.page.wait_for_selector(GitHubSelectors.APP_NAME_INPUT, timeout=15000)
 
-        logger.info("   Filling form details...")
-        self.page.fill(GitHubSelectors.APP_NAME_INPUT, config.name)
-        self.page.fill(GitHubSelectors.APP_URL_INPUT, config.homepage_url)
-        self.page.fill(GitHubSelectors.APP_DESC_INPUT, config.description)
-        self.page.fill(GitHubSelectors.CALLBACK_URL_INPUT, config.callback_url)
+        while True:
+            logger.info("   Filling form details...")
+            self.page.fill(GitHubSelectors.APP_NAME_INPUT, config.name)
+            self.page.fill(GitHubSelectors.APP_URL_INPUT, config.homepage_url)
+            self.page.fill(GitHubSelectors.APP_DESC_INPUT, config.description)
+            self.page.fill(GitHubSelectors.CALLBACK_URL_INPUT, config.callback_url)
 
-        logger.info("   Submitting form...")
-        self.page.click(GitHubSelectors.REGISTER_BUTTON)
+            logger.info("   Submitting form...")
+            self.page.click(GitHubSelectors.REGISTER_BUTTON)
 
-        # Wait for navigation to the app settings page
-        self.page.wait_for_url("**/settings/applications/**")
+            # Wait for EITHER success redirect OR error message
+            # Success: URL changes to /settings/applications/...
+            # Error: Stays on /new and shows flash error or input-validation-error
+            
+            try:
+                # Polling for success or error
+                for _ in range(10): # Try for ~5 seconds
+                    current_url = self.page.url
+                    if "/settings/applications/" in current_url and "/new" not in current_url:
+                        break # Success!
+                    
+                    # Check for errors
+                    error_el = self.page.query_selector('.flash-error, .error, #js-flash-container .flash-error')
+                    if error_el and error_el.is_visible():
+                        error_text = error_el.inner_text().strip()
+                        if "already taken" in error_text.lower() or "name" in error_text.lower():
+                            logger.warning(f"⚠️  Name '{config.name}' is already taken.")
+                            print("\n\033[91m❌ Error: App name is already taken on GitHub.\033[0m")
+                            new_name = input("\033[94m➤\033[0m Enter a different app name: ").strip()
+                            if new_name:
+                                config.name = new_name
+                                # Clear the input and retry loop
+                                self.page.fill(GitHubSelectors.APP_NAME_INPUT, "")
+                                break # Break inner check loop to retry outer submission loop
+                        else:
+                             # Some other error?
+                             logger.warning(f"⚠️  GitHub Error: {error_text}")
+                    
+                    time.sleep(0.5)
+                else: 
+                     # If loop finishes without break, we might be stuck or slow
+                     if "/settings/applications/" in self.page.url and "/new" not in self.page.url:
+                         break # Success just in time
+                     
+                     # If we are here, we looped 10 times and didn't see success or explicit error. 
+                     # Check one last time for success, otherwise assume maybe network/timeout or silent fail
+                     pass
+
+                # Inner break above breaks the polling loop, but we need to check if we succeeded
+                if "/settings/applications/" in self.page.url and "/new" not in self.page.url:
+                    break # Break outer submission loop - SUCCESS
+                    
+            except Exception as e:
+                logger.error(f"Error checking submission: {e}")
+                # Don't break, maybe try again or manual intervention?
+                break
+
         app_url = self.page.url
 
         # 1. Extract Client ID
@@ -837,17 +903,14 @@ def print_menu():
         "\033[93m│\033[0m  \033[92m3.\033[0m Verify existing credentials     \033[93m│\033[0m"
     )
     print(
-        "\033[93m│\033[0m  \033[92m4.\033[0m View saved credentials          \033[93m│\033[0m"
+        "\033[93m│\033[0m  \033[92m4.\033[0m View saved credentials (.env)   \033[93m│\033[0m"
     )
     print(
         "\033[93m│\033[0m  \033[92m5.\033[0m Delete OAuth app from GitHub    \033[93m│\033[0m"
     )
-    print(
-        "\033[93m│\033[0m  \033[92m6.\033[0m Clear browser session           \033[93m│\033[0m"
-    )
-    print(
-        "\033[93m│\033[0m  \033[91m7.\033[0m Exit                            \033[93m│\033[0m"
-    )
+    print("\033[93m│\033[0m  \033[92m6.\033[0m Clear browser session           \033[93m│\033[0m")
+    print("\033[93m│\033[0m  \033[92m7.\033[0m View Secure Audit Log           \033[93m│\033[0m")
+    print("\033[93m│\033[0m  \033[91m8.\033[0m Exit                            \033[93m│\033[0m")
     print("\033[93m└─────────────────────────────────────┘\033[0m")
 
 
@@ -1212,6 +1275,20 @@ def interactive_create():
         if write_env and env_file:
             write_credentials_to_env(creds, env_file)
 
+        # Secure Logging
+        if HAS_AUDIT_LOGGER and os.getenv("ENABLE_SECURE_LOGGING", "false").lower() == "true":
+            try:
+                audit = AuditLogger()
+                audit.log_credential(
+                    app_name=creds.app_name, 
+                    client_id=creds.client_id, 
+                    client_secret=creds.client_secret, 
+                    homepage=homepage_url,
+                    env_type="DEV"
+                )
+            except Exception as e:
+                logger.warning(f"Failed to securely log credential: {e}")
+
         if verify:
             if creds.verify():
                 logger.info("🎉 All checks passed!")
@@ -1455,6 +1532,29 @@ GITHUB_CLIENT_SECRET_PROD="{prod_creds.client_secret}"
                 # Split: Write PROD with standard keys to separate file
                 # No forced prefix - allow standard duplicate handling (archive vs generated)
                 write_credentials_to_env(prod_creds, prod_file)
+        
+        # Secure Logging
+        if HAS_AUDIT_LOGGER and os.getenv("ENABLE_SECURE_LOGGING", "false").lower() == "true":
+            try:
+                audit = AuditLogger()
+                # Log DEV
+                audit.log_credential(
+                    app_name=dev_creds.app_name, 
+                    client_id=dev_creds.client_id, 
+                    client_secret=dev_creds.client_secret, 
+                    homepage=dev_homepage,
+                    env_type="DEV"
+                )
+                # Log PROD
+                audit.log_credential(
+                    app_name=prod_creds.app_name, 
+                    client_id=prod_creds.client_id, 
+                    client_secret=prod_creds.client_secret, 
+                    homepage=prod_homepage,
+                    env_type="PROD"
+                )
+            except Exception as e:
+                logger.warning(f"Failed to securely log credentials: {e}")
 
         if verify:
             print("\n\033[1m🔍 Verifying credentials...\033[0m")
@@ -1564,6 +1664,80 @@ def view_saved_credentials():
                 print("\033[91m❌ Invalid selection.\033[0m")
         except (ValueError, KeyboardInterrupt):
             print("\n\033[93m⚠️  Cancelled.\033[0m")
+
+
+def interactive_view_audit_log():
+    """Decrypt and display the secure audit log."""
+    print("\n\033[1m🔐 Secure Audit Log\033[0m")
+    print("\033[90m" + "─" * 40 + "\033[0m\n")
+    
+    if not HAS_AUDIT_LOGGER or not os.path.exists(os.path.expanduser("~/.oauth-automator/.key")):
+        print("\033[93m⚠️  No secure log or key found.\033[0m")
+        print("   Secure logging might not be enabled or no apps created yet.")
+        
+        if prompt_yes_no("\nEnable secure audit logging now?"):
+            # Update .env
+            env_path = Path(".env")
+            if env_path.exists():
+                content = env_path.read_text()
+                if "ENABLE_SECURE_LOGGING=" in content:
+                    content = re.sub(r"ENABLE_SECURE_LOGGING=.*", "ENABLE_SECURE_LOGGING=true", content)
+                else:
+                    content += "\nENABLE_SECURE_LOGGING=true"
+                env_path.write_text(content)
+                logger.info("✅ Updated .env configuration.")
+            
+            # Initialize Logger (creates keys)
+            try:
+                # Force environment var for this session
+                os.environ["ENABLE_SECURE_LOGGING"] = "true"
+                audit = AuditLogger()
+                print("\033[92m✅ Secure logging enabled & keys generated.\033[0m")
+                print("   Future apps will be logged.")
+            except Exception as e:
+                print(f"\033[91m❌ Failed to initialize logger: {e}\033[0m")
+        return
+
+    try:
+        audit = AuditLogger()
+        entries = audit.read_log()
+        
+        if not entries:
+            print("   \033[90m(Log is empty)\033[0m")
+            return
+            
+        print(f"\033[96mFound {len(entries)} entries:\033[0m\n")
+        
+        # Sort by timestamp desc
+        entries.sort(key=lambda x: x.get('timestamp', ''), reverse=True)
+        
+        for i, entry in enumerate(entries, 1):
+            ts = entry.get('timestamp', 'Unknown').replace('T', ' ')[:19]
+            env = entry.get('env_type', 'UNK')
+            name = entry.get('app_name', 'Unknown')
+            cid = entry.get('client_id', '???')
+            
+            print(f"\033[94m[{i}] {ts} \033[0m| \033[1m{env}\033[0m | {name}")
+            print(f"      Client ID: {cid}")
+        
+        print()
+        if prompt_yes_no("Reveal full secrets for an entry?", False):
+            try:
+                choice = int(input("\033[94m➤\033[0m Enter entry number: ").strip())
+                if 1 <= choice <= len(entries):
+                    item = entries[choice-1]
+                    print(f"\n\033[1m🔓 Secrets for {item['app_name']}:\033[0m")
+                    print(f"   Client ID:     {item['client_id']}")
+                    print(f"   Client Secret: {item['client_secret']}")
+                    input("\nPress Enter to clear screen...")
+                    print("\033[2J\033[H", end="")  # Clear screen
+                else:
+                    print("\033[91m❌ Invalid selection.\033[0m")
+            except ValueError:
+                print("\033[91m❌ Invalid input.\033[0m")
+                
+    except Exception as e:
+        logger.error(f"Failed to read audit log: {e}")
 
 
 def interactive_delete():
@@ -1690,7 +1864,7 @@ def interactive_main():
 
     while True:
         print_menu()
-        choice = input("\n\033[94m➤\033[0m Enter choice (1-7): ").strip()
+        choice = input("\n\033[94m➤\033[0m Enter choice (1-8): ").strip()
 
         if choice == "1":
             interactive_create()
@@ -1705,10 +1879,12 @@ def interactive_main():
         elif choice == "6":
             clear_session()
         elif choice == "7":
+            interactive_view_audit_log()
+        elif choice == "8":
             print("\n\033[96m👋 Goodbye!\033[0m\n")
             break
         else:
-            print("\033[91m❌ Invalid choice. Please enter 1-7.\033[0m")
+            print("\033[91m❌ Invalid choice. Please enter 1-8.\033[0m")
 
 
 def main():
