@@ -58,6 +58,7 @@ The `./setup.sh` script will create a `.env` file for you:
 
 ```ini
 OAUTH_APP_NAME="My App"
+GITHUB_PASSWORD="your-password"             # Optional - for auto-filling Sudo Mode
 OAUTH_BASE_URL="http://localhost:3000"
 OAUTH_CALLBACK_URL="http://localhost:3000/api/auth/callback/github"
 OAUTH_PROD_BASE_URL="https://your-production-domain.com"  # For DEV+PROD mode
@@ -79,7 +80,9 @@ When writing credentials to an existing `.env` file, the script will **never ove
 ## Troubleshooting
 
 - **“Browser already running”**: If you use a custom Brave or Chrome profile, you must close the browser before running the script. Playwright cannot attach to a running browser instance.  
-- **Sudo mode**: If GitHub asks for a password, the script will detect it and ask you to enter it in the terminal, or auto-fill it if configured.  
+- **Sudo mode**: When accessing sensitive settings, GitHub asks for your password. 
+  - To **avoid manual entry**: Add `GITHUB_PASSWORD="your-password"` to your `.env` file. The script will auto-fill it.
+  - Otherwise, the script will ask you to enter it in the terminal once per session.  
 - **Anything else**: I also don’t know. Any agent will fix it.  
 
 ---
