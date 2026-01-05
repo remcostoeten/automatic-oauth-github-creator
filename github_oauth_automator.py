@@ -1626,6 +1626,28 @@ def interactive_view_audit_log():
     if not HAS_AUDIT_LOGGER or not os.path.exists(os.path.expanduser("~/.oauth-automator/.key")):
         print("\033[93m⚠️  No secure log or key found.\033[0m")
         print("   Secure logging might not be enabled or no apps created yet.")
+        
+        if prompt_yes_no("\nEnable secure audit logging now?"):
+            # Update .env
+            env_path = Path(".env")
+            if env_path.exists():
+                content = env_path.read_text()
+                if "ENABLE_SECURE_LOGGING=" in content:
+                    content = re.sub(r"ENABLE_SECURE_LOGGING=.*", "ENABLE_SECURE_LOGGING=true", content)
+                else:
+                    content += "\nENABLE_SECURE_LOGGING=true"
+                env_path.write_text(content)
+                logger.info("✅ Updated .env configuration.")
+            
+            # Initialize Logger (creates keys)
+            try:
+                # Force environment var for this session
+                os.environ["ENABLE_SECURE_LOGGING"] = "true"
+                audit = AuditLogger()
+                print("\033[92m✅ Secure logging enabled & keys generated.\033[0m")
+                print("   Future apps will be logged.")
+            except Exception as e:
+                print(f"\033[91m❌ Failed to initialize logger: {e}\033[0m")
         return
 
     try:
@@ -1794,7 +1816,7 @@ def interactive_main():
 
     while True:
         print_menu()
-        choice = input("\n\033[94m➤\033[0m Enter choice (1-7): ").strip()
+        choice = input("\n\033[94m➤\033[0m Enter choice (1-8): ").strip()
 
         if choice == "1":
             interactive_create()
