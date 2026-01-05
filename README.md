@@ -7,7 +7,7 @@ This tool automates the tedious process of creating GitHub OAuth applications, s
 
 If you’re concerned about security, read how this tool [works](#how-it-works).
 
-<video src="DEMO-compressed.webm" controls width="800"></video>
+![Demo](DEMO.gif)
 
 ## Quick Start
 
