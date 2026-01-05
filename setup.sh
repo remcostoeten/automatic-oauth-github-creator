@@ -144,6 +144,18 @@ configure_env() {
     read -r callback_url
     callback_url="${callback_url:-$default_callback}"
     
+    # Production settings
+    echo ""
+    echo -e "  ${BOLD}Production Settings (for Dual Mode):${NC}"
+    prompt "Prod Base URL [https://your-domain.com]"
+    read -r prod_base_url
+    prod_base_url="${prod_base_url:-https://your-domain.com}"
+    
+    default_prod_callback="${prod_base_url}/api/auth/callback/github"
+    prompt "Prod Callback URL [${default_prod_callback}]"
+    read -r prod_callback_url
+    prod_callback_url="${prod_callback_url:-$default_prod_callback}"
+    
     # Browser profile configuration
     echo ""
     echo -e "  ${BOLD}Browser Profile Configuration:${NC}"
@@ -254,6 +266,8 @@ OAUTH_APP_NAME="${app_name}"
 OAUTH_APP_DESCRIPTION="${app_desc}"
 OAUTH_BASE_URL="${base_url}"
 OAUTH_CALLBACK_URL="${callback_url}"
+OAUTH_PROD_BASE_URL="${prod_base_url}"
+OAUTH_PROD_CALLBACK_URL="${prod_callback_url}"
 GITHUB_PASSWORD="${github_pass}"
 BROWSER_PROFILE_PATH="${browser_profile}"
 BROWSER_EXECUTABLE_PATH="${browser_executable}"
