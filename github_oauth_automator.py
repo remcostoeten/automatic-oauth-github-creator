@@ -43,6 +43,19 @@ import platform
 import subprocess
 import re
 
+# Try to import AuditLogger, but don't fail if dependencies missing (e.g. during simple unit tests)
+try:
+    from github_audit_logger import AuditLogger
+    HAS_AUDIT_LOGGER = True
+except ImportError:
+    HAS_AUDIT_LOGGER = False
+    logger = logging.getLogger("auth_automator") 
+    # Fallback to avoid breaking if file missing
+    class AuditLogger:
+        def __init__(self, *args): pass
+        def log_credential(self, *args, **kwargs): pass
+        def read_log(self): return []
+
 
 # Configure logging to look nice in the terminal
 # Configure logging with custom colors
@@ -842,12 +855,9 @@ def print_menu():
     print(
         "\033[93m│\033[0m  \033[92m5.\033[0m Delete OAuth app from GitHub    \033[93m│\033[0m"
     )
-    print(
-        "\033[93m│\033[0m  \033[92m6.\033[0m Clear browser session           \033[93m│\033[0m"
-    )
-    print(
-        "\033[93m│\033[0m  \033[91m7.\033[0m Exit                            \033[93m│\033[0m"
-    )
+    print("\033[93m│\033[0m  \033[92m6.\033[0m Clear browser session           \033[93m│\033[0m")
+    print("\033[93m│\033[0m  \033[92m7.\033[0m View Secure Audit Log           \033[93m│\033[0m")
+    print("\033[93m│\033[0m  \033[91m8.\033[0m Exit                            \033[93m│\033[0m")
     print("\033[93m└─────────────────────────────────────┘\033[0m")
 
 
@@ -1212,6 +1222,20 @@ def interactive_create():
         if write_env and env_file:
             write_credentials_to_env(creds, env_file)
 
+        # Secure Logging
+        if HAS_AUDIT_LOGGER and os.getenv("ENABLE_SECURE_LOGGING", "false").lower() == "true":
+            try:
+                audit = AuditLogger()
+                audit.log_credential(
+                    app_name=creds.app_name, 
+                    client_id=creds.client_id, 
+                    client_secret=creds.client_secret, 
+                    homepage=homepage_url,
+                    env_type="DEV"
+                )
+            except Exception as e:
+                logger.warning(f"Failed to securely log credential: {e}")
+
         if verify:
             if creds.verify():
                 logger.info("🎉 All checks passed!")
@@ -1455,6 +1479,29 @@ GITHUB_CLIENT_SECRET_PROD="{prod_creds.client_secret}"
                 # Split: Write PROD with standard keys to separate file
                 # No forced prefix - allow standard duplicate handling (archive vs generated)
                 write_credentials_to_env(prod_creds, prod_file)
+        
+        # Secure Logging
+        if HAS_AUDIT_LOGGER and os.getenv("ENABLE_SECURE_LOGGING", "false").lower() == "true":
+            try:
+                audit = AuditLogger()
+                # Log DEV
+                audit.log_credential(
+                    app_name=dev_creds.app_name, 
+                    client_id=dev_creds.client_id, 
+                    client_secret=dev_creds.client_secret, 
+                    homepage=dev_homepage,
+                    env_type="DEV"
+                )
+                # Log PROD
+                audit.log_credential(
+                    app_name=prod_creds.app_name, 
+                    client_id=prod_creds.client_id, 
+                    client_secret=prod_creds.client_secret, 
+                    homepage=prod_homepage,
+                    env_type="PROD"
+                )
+            except Exception as e:
+                logger.warning(f"Failed to securely log credentials: {e}")
 
         if verify:
             print("\n\033[1m🔍 Verifying credentials...\033[0m")
@@ -1564,6 +1611,58 @@ def view_saved_credentials():
                 print("\033[91m❌ Invalid selection.\033[0m")
         except (ValueError, KeyboardInterrupt):
             print("\n\033[93m⚠️  Cancelled.\033[0m")
+
+
+def interactive_view_audit_log():
+    """Decrypt and display the secure audit log."""
+    print("\n\033[1m🔐 Secure Audit Log\033[0m")
+    print("\033[90m" + "─" * 40 + "\033[0m\n")
+    
+    if not HAS_AUDIT_LOGGER or not os.path.exists(os.path.expanduser("~/.oauth-automator/.key")):
+        print("\033[93m⚠️  No secure log or key found.\033[0m")
+        print("   Secure logging might not be enabled or no apps created yet.")
+        return
+
+    try:
+        audit = AuditLogger()
+        entries = audit.read_log()
+        
+        if not entries:
+            print("   \033[90m(Log is empty)\033[0m")
+            return
+            
+        print(f"\033[96mFound {len(entries)} entries:\033[0m\n")
+        
+        # Sort by timestamp desc
+        entries.sort(key=lambda x: x.get('timestamp', ''), reverse=True)
+        
+        for i, entry in enumerate(entries, 1):
+            ts = entry.get('timestamp', 'Unknown').replace('T', ' ')[:19]
+            env = entry.get('env_type', 'UNK')
+            name = entry.get('app_name', 'Unknown')
+            cid = entry.get('client_id', '???')
+            
+            print(f"\033[94m[{i}] {ts} \033[0m| \033[1m{env}\033[0m | {name}")
+            print(f"      Client ID: {cid}")
+        
+        print()
+        if prompt_yes_no("Reveal full secrets for an entry?", False):
+            try:
+                choice = int(input("\033[94m➤\033[0m Enter entry number: ").strip())
+                if 1 <= choice <= len(entries):
+                    item = entries[choice-1]
+                    print(f"\n\033[1m🔓 Secrets for {item['app_name']}:\033[0m")
+                    print(f"   Client ID:     {item['client_id']}")
+                    print(f"   Client Secret: {item['client_secret']}")
+                    input("\nPress Enter to clear screen...")
+                    print("\033[2J\033[H", end="")  # Clear screen
+                else:
+                    print("\033[91m❌ Invalid selection.\033[0m")
+            except ValueError:
+                print("\033[91m❌ Invalid input.\033[0m")
+                
+    except Exception as e:
+        logger.error(f"Failed to read audit log: {e}")
 
 
 def interactive_delete():
@@ -1705,10 +1804,12 @@ def interactive_main():
         elif choice == "6":
             clear_session()
         elif choice == "7":
+            interactive_view_audit_log()
+        elif choice == "8":
             print("\n\033[96m👋 Goodbye!\033[0m\n")
             break
         else:
-            print("\033[91m❌ Invalid choice. Please enter 1-7.\033[0m")
+            print("\033[91m❌ Invalid choice. Please enter 1-8.\033[0m")
 
 
 def main():
