@@ -7,7 +7,7 @@ This tool automates the tedious process of creating GitHub OAuth applications, s
 
 If you’re concerned about security, read how this tool [works](#how-it-works).
 
-<video src="DEMO.webm" controls="controls" style="max-width: 100%;">
+<video src="https://github.com/remcostoeten/automatic-oauth-github-creator/files/DEMO.webm" controls="controls" style="max-width: 100%;">
   Your browser does not support the video tag.
 </video>
 
@@ -20,7 +20,7 @@ This program requires a few dependencies, which will be handled automatically by
 ./setup.sh
 ```
 
-_It will verify Python, install dependencies (using `uv` for speed), and help you link your existing Brave or Chrome session (optional). You can either choose to stay logged in permanently or run it in a headless browser, which defeats the purpose in my opinion, but you do you._
+_It will verify Python, install dependencies (using `uv` for speed), and help you link your existing Brave or Chrome session (optional). You can either choose to stay logged in permanently or run [...]
 
 **2. Run**  
 Once the prerequisites are installed, you can simply run:
