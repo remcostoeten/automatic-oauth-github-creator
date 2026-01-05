@@ -549,7 +549,8 @@ class GitHubAutomator:
         
         try:
             # Navigate to the app's settings page
-            self.page.goto(app_url)
+            logger.info(f"   Navigating to {app_url}...")
+            self.page.goto(app_url, timeout=20000)
             self.handle_sudo_mode()
             
             time.sleep(1)
@@ -592,12 +593,19 @@ class GitHubAutomator:
                         if confirm_btn and confirm_btn.is_visible():
                             confirm_btn.click()
                             logger.info("   Confirmed deletion")
-                            time.sleep(1)
+                            # Wait for navigation explicitly
+                            try:
+                                self.page.wait_for_url("**/settings/developers", timeout=10000)
+                                logger.info("   ✅ App deleted successfully")
+                                return True
+                            except:
+                                logger.warning("   ⚠️ Timed out waiting for redirection, but deletion may have succeeded")
+                                return True
                             break
                     except Exception:
                         continue
             
-            # Verify we're back at the developers page (successful deletion)
+            # Fallback verification
             if "settings/developers" in self.page.url:
                 logger.info("   ✅ App deleted successfully")
                 return True
@@ -882,29 +890,80 @@ def get_unique_key_prefix(env_path: Path, base_key: str = "GITHUB_CLIENT_ID") ->
     return f"GENERATED_{n}"
 
 
-def write_credentials_to_env(creds: 'OAuthCredentials', env_file: str, prefix: str = "") -> bool:
+def archive_old_keys(env_path: Path, base_key: str = "GITHUB_CLIENT_ID") -> bool:
     """
-    Write credentials to an .env file with smart duplicate handling.
-    Never overwrites existing keys - uses prefixes instead.
-    Returns True on success.
+    Comment out existing keys with # OLD_ prefix.
+    Returns True if changes were made.
+    """
+    if not env_path.exists():
+        return False
+        
+    content = env_path.read_text()
+    new_content = content
+    
+    # Regex to find active keys (not already commented)
+    # Replaces 'KEY=VAL' with '# OLD_KEY=VAL'
+    
+    patterns = [
+        (rf'^{base_key}=', f'# OLD_{base_key}='),
+        (rf'^{base_key.replace("ID", "SECRET")}=', f'# OLD_{base_key.replace("ID", "SECRET")}='),
+        # Also handle quoted versions just in case
+        (rf'^{base_key}="', f'# OLD_{base_key}="'),
+        (rf'^{base_key.replace("ID", "SECRET")}="', f'# OLD_{base_key.replace("ID", "SECRET")}="')
+    ]
+    
+    changes = 0
+    for pattern, replacement in patterns:
+        new_content, count = re.subn(pattern, replacement, new_content, flags=re.MULTILINE)
+        changes += count
+        
+    if changes > 0:
+        env_path.write_text(new_content)
+        return True
+    return False
+
+
+def write_credentials_to_env(creds: 'OAuthCredentials', env_file: str, prefix: str = "", force_prefix: bool = False) -> bool:
+    """
+    Write credentials to an .env file.
+    If conflict exists:
+      1. If force_prefix is True, usage provided prefix (e.g. PROD_)
+      2. Otherwise, prompt user: Archive old keys OR use GENERATED_ prefix
     """
     env_path = Path(env_file)
     
-    # Determine if we need a prefix for duplicate handling
-    actual_prefix = prefix
-    if not prefix:
-        actual_prefix = get_unique_key_prefix(env_path)
+    # Check for conflicts
+    conflict = False
+    if get_unique_key_prefix(env_path):
+        conflict = True
+        
+    final_prefix = prefix
+    should_archive = False
     
-    # Get the formatted credentials
-    if actual_prefix:
-        env_content = creds.to_env_string_with_prefix(actual_prefix)
-        print(f"\n\033[93m⚠️  Warning: Keys already exist in {env_file}!\033[0m")
-        print(f"    Using prefix: \033[96m{actual_prefix}_\033[0m")
-        print(f"    Your new keys will be:")
-        print(f"      • \033[96m{actual_prefix}_GITHUB_CLIENT_ID\033[0m")
-        print(f"      • \033[96m{actual_prefix}_GITHUB_CLIENT_SECRET\033[0m")
-        print(f"\n\033[91m    ⚠️  You need to update your application to use these new keys,\033[0m")
-        print(f"\033[91m       or manually replace the old values!\033[0m\n")
+    # If there is a conflict and we aren't forced to use a specific prefix
+    if conflict and not force_prefix and not prefix:
+        print(f"\n\033[93m⚠️  Warning: Credentials already exist in {env_file}!\033[0m")
+        print("   How do you want to handle this?")
+        print("   \033[96m[1]\033[0m Add new keys with \033[1mGENERATED_\033[0m prefix (keep old)")
+        print("   \033[96m[2]\033[0m Archive old keys (\033[1m# OLD_...\033[0m) and use standard names")
+        
+        choice = input("\n\033[94m➤\033[0m Choice [1]: ").strip()
+        
+        if choice == "2":
+            should_archive = True
+        else:
+            final_prefix = get_unique_key_prefix(env_path)
+    
+    # Execute archiving if chosen
+    if should_archive:
+        if archive_old_keys(env_path):
+            logger.info(f"   Archived old keys in {env_file}")
+            
+    # Determine content to write
+    if final_prefix:
+        env_content = creds.to_env_string_with_prefix(final_prefix)
+        if not force_prefix: # If it wasn't forced (like PROD_), warn the user
+            print(f"    Using prefix: \033[96m{final_prefix}_\033[0m")
     else:
         env_content = creds.to_env_string()
     
@@ -974,7 +1033,7 @@ def interactive_create():
     
     # Gather inputs with .env defaults
     app_name = prompt("Application name", default_app_name)
-    homepage_url = prompt("Homepage URL", default_homepage)
+    homepage_url = prompt("Homepage URL", default_homepage).rstrip('/')
     callback_url = prompt("Callback URL", default_callback)
     
     # Only prompt for password if not in env
@@ -1121,8 +1180,8 @@ def interactive_create_dual():
     
     # Gather inputs
     base_app_name = prompt("Base application name", default_app_name)
-    dev_homepage = prompt("DEV Homepage URL", default_dev_homepage)
-    prod_homepage = prompt("PROD Homepage URL", default_prod_homepage)
+    dev_homepage = prompt("DEV Homepage URL", default_dev_homepage).rstrip('/')
+    prod_homepage = prompt("PROD Homepage URL", default_prod_homepage).rstrip('/')
     custom_callback_path = prompt("Callback path (same for both)", callback_path)
     
     dev_callback = f"{dev_homepage}{custom_callback_path}"
@@ -1250,17 +1309,13 @@ GITHUB_CLIENT_SECRET_PROD="{prod_creds.client_secret}"
             write_credentials_to_env(dev_creds, dev_file)
             
             if write_mode == "combined":
-                # Combined: Write PROD with _PROD suffix to same file
-                env_path = Path(dev_file)
-                try:
-                    with open(env_path, "a") as f:
-                        f.write(prod_env_text)
-                    logger.info(f"✅ PROD credentials saved to {dev_file} (with _PROD suffix)")
-                except Exception as e:
-                    logger.error(f"❌ Failed to write PROD credentials: {e}")
+                # Combined: PROD credentials MUST be prefixed with PROD_ in the same file
+                # pass force_prefix=True to bypass interactive duplicate check prompt for this specific prefix
+                write_credentials_to_env(prod_creds, dev_file, prefix="PROD", force_prefix=True)
                     
             elif write_mode == "split" and prod_file:
                 # Split: Write PROD with standard keys to separate file
+                # No forced prefix - allow standard duplicate handling (archive vs generated)
                 write_credentials_to_env(prod_creds, prod_file)
         
         if verify:
