@@ -42,6 +42,12 @@ check_uv() {
     
     if command -v uv &> /dev/null; then
         log_ok "Found: $(uv --version)"
+        prompt "Check for uv updates? [y/N]"
+        read -r response
+        if [[ "${response,,}" =~ ^(y|yes)$ ]]; then
+            log_step "Updating uv..."
+            uv self update || true
+        fi
         return 0
     fi
     
@@ -68,6 +74,7 @@ check_uv() {
 check_browser() {
     log_step "Checking for browser..."
     
+    # 1. Check for system browsers
     browsers=(
         "/usr/bin/google-chrome"
         "/usr/bin/chromium"
@@ -78,11 +85,17 @@ check_browser() {
     
     for browser in "${browsers[@]}"; do
         if [[ -x "$browser" ]]; then
-            log_ok "Found: $browser"
+            log_ok "Found system browser: $browser"
             return 0
         fi
     done
     
+    # 2. Check if playwright already has a browser installed
+    if uv run --with playwright python -c "from playwright.sync_api import sync_playwright; p=sync_playwright().start(); b=p.chromium.launch(); b.close(); p.stop()" &> /dev/null; then
+        log_ok "Found Playwright Chromium"
+        return 0
+    fi
+
     log_warn "No system Chrome/Chromium found."
     echo -e "  Playwright will download its own Chromium (~150MB)."
     prompt "Continue? [Y/n]"
@@ -93,14 +106,20 @@ check_browser() {
     fi
     
     log_ok "Will use Playwright's bundled Chromium"
+    return 1 # Signal that we need to install it
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Step 3: Install Playwright browser
 # ─────────────────────────────────────────────────────────────────────────────
 install_playwright() {
+    # If check_browser returned 0, we skip this
+    if check_browser; then
+        log_ok "Skipping browser installation (already present)"
+        return 0
+    fi
+
     log_step "Setting up Playwright browser..."
-    
     echo "  Installing Chromium (this may take a minute)..."
     uv run --with playwright python -m playwright install chromium
     log_ok "Playwright Chromium ready"
@@ -257,6 +276,17 @@ configure_env() {
     prompt "GitHub Password (hidden)"
     read -rs github_pass
     echo ""
+
+    echo ""
+    echo -e "  ${BOLD}Secure Audit Logging:${NC}"
+    echo -e "  Encrypted log of generated credentials in ~/.oauth-automator/github/"
+    prompt "Enable secure logging? [y/N]"
+    read -r enable_logging
+    
+    secure_logging="false"
+    if [[ "${enable_logging,,}" =~ ^(y|yes)$ ]]; then
+        secure_logging="true"
+    fi
     
     cat > "$ENV_FILE" << EOF
 # GitHub OAuth Automator Configuration
@@ -269,6 +299,7 @@ OAUTH_CALLBACK_URL="${callback_url}"
 OAUTH_PROD_BASE_URL="${prod_base_url}"
 OAUTH_PROD_CALLBACK_URL="${prod_callback_url}"
 GITHUB_PASSWORD="${github_pass}"
+ENABLE_SECURE_LOGGING="${secure_logging}"
 BROWSER_PROFILE_PATH="${browser_profile}"
 BROWSER_EXECUTABLE_PATH="${browser_executable}"
 WRITE_ENV_FILE=true
@@ -306,7 +337,6 @@ offer_run() {
 main() {
     print_banner
     check_uv
-    check_browser
     install_playwright
     configure_env
     offer_run
