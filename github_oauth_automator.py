@@ -694,20 +694,68 @@ class GitHubAutomator:
 
         self.handle_sudo_mode()
 
+        self.handle_sudo_mode()
+
         # Robustly wait for the form
         self.page.wait_for_selector(GitHubSelectors.APP_NAME_INPUT, timeout=15000)
 
-        logger.info("   Filling form details...")
-        self.page.fill(GitHubSelectors.APP_NAME_INPUT, config.name)
-        self.page.fill(GitHubSelectors.APP_URL_INPUT, config.homepage_url)
-        self.page.fill(GitHubSelectors.APP_DESC_INPUT, config.description)
-        self.page.fill(GitHubSelectors.CALLBACK_URL_INPUT, config.callback_url)
+        while True:
+            logger.info("   Filling form details...")
+            self.page.fill(GitHubSelectors.APP_NAME_INPUT, config.name)
+            self.page.fill(GitHubSelectors.APP_URL_INPUT, config.homepage_url)
+            self.page.fill(GitHubSelectors.APP_DESC_INPUT, config.description)
+            self.page.fill(GitHubSelectors.CALLBACK_URL_INPUT, config.callback_url)
 
-        logger.info("   Submitting form...")
-        self.page.click(GitHubSelectors.REGISTER_BUTTON)
+            logger.info("   Submitting form...")
+            self.page.click(GitHubSelectors.REGISTER_BUTTON)
 
-        # Wait for navigation to the app settings page
-        self.page.wait_for_url("**/settings/applications/**")
+            # Wait for EITHER success redirect OR error message
+            # Success: URL changes to /settings/applications/...
+            # Error: Stays on /new and shows flash error or input-validation-error
+            
+            try:
+                # Polling for success or error
+                for _ in range(10): # Try for ~5 seconds
+                    current_url = self.page.url
+                    if "/settings/applications/" in current_url and "/new" not in current_url:
+                        break # Success!
+                    
+                    # Check for errors
+                    error_el = self.page.query_selector('.flash-error, .error, #js-flash-container .flash-error')
+                    if error_el and error_el.is_visible():
+                        error_text = error_el.inner_text().strip()
+                        if "already taken" in error_text.lower() or "name" in error_text.lower():
+                            logger.warning(f"⚠️  Name '{config.name}' is already taken.")
+                            print("\n\033[91m❌ Error: App name is already taken on GitHub.\033[0m")
+                            new_name = input("\033[94m➤\033[0m Enter a different app name: ").strip()
+                            if new_name:
+                                config.name = new_name
+                                # Clear the input and retry loop
+                                self.page.fill(GitHubSelectors.APP_NAME_INPUT, "")
+                                break # Break inner check loop to retry outer submission loop
+                        else:
+                             # Some other error?
+                             logger.warning(f"⚠️  GitHub Error: {error_text}")
+                    
+                    time.sleep(0.5)
+                else: 
+                     # If loop finishes without break, we might be stuck or slow
+                     if "/settings/applications/" in self.page.url and "/new" not in self.page.url:
+                         break # Success just in time
+                     
+                     # If we are here, we looped 10 times and didn't see success or explicit error. 
+                     # Check one last time for success, otherwise assume maybe network/timeout or silent fail
+                     pass
+
+                # Inner break above breaks the polling loop, but we need to check if we succeeded
+                if "/settings/applications/" in self.page.url and "/new" not in self.page.url:
+                    break # Break outer submission loop - SUCCESS
+                    
+            except Exception as e:
+                logger.error(f"Error checking submission: {e}")
+                # Don't break, maybe try again or manual intervention?
+                break
+
         app_url = self.page.url
 
         # 1. Extract Client ID
