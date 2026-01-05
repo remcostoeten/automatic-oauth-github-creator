@@ -42,3 +42,4 @@ All notable changes to this project will be documented in this file.
 - **Browser Session Management**: Reuses browser profile to avoid 2FA/login repetition.
 - **Basic Verification**: Interactive script to verify generated credentials against the GitHub API.
 - **App Deletion**: Utility to delete existing OAuth apps.
+```

@@ -25,4 +25,4 @@ log_info "Launching GitHub OAuth Automator..."
 echo ""
 
 # uv run handles everything: creates temp venv, installs deps, runs script
-exec uv run --with playwright --with python-dotenv --with requests python "$MAIN_SCRIPT" "$@"
+exec uv run --with playwright --with python-dotenv --with requests --with cryptography python "$MAIN_SCRIPT" "$@"
