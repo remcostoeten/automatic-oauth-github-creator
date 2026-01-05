@@ -32,8 +32,12 @@ This will prompt you for the required config values, write them to a `.env` file
 ## Features
 
 - Automatic OAuth app creation  
+- **Create DEV + PROD apps at once** - Generate credentials for both environments simultaneously
 - Automatic client secret generation  
-- Write credentials to a `.env` file or stdout  
+- **Flexible credential output:**
+  - Copy to clipboard (Mac/Linux)
+  - Write to `.env`, `.env.local`, or `.env.production`
+- **Smart duplicate handling** - Never overwrites existing keys, uses `GENERATED_` prefixes
 - Allow deletion of any existing app through the GitHub API  
 
 ## How it works
@@ -54,10 +58,21 @@ The `./setup.sh` script will create a `.env` file for you:
 OAUTH_APP_NAME="My App"
 OAUTH_BASE_URL="http://localhost:3000"
 OAUTH_CALLBACK_URL="http://localhost:3000/api/auth/callback/github"
+OAUTH_PROD_BASE_URL="https://your-production-domain.com"  # For DEV+PROD mode
+OAUTH_PROD_CALLBACK_URL="https://your-production-domain.com/api/auth/callback/github"
 BROWSER_PROFILE_PATH="/home/user/.config/BraveSoftware/Brave-Browser/Default" # Optional
 ```
 
 If for some reason it fails, you can just copy `.env.example` and fill the credentials in there.
+
+### Duplicate Key Handling
+
+When writing credentials to an existing `.env` file, the script will **never overwrite** existing keys. Instead:
+
+1. If `GITHUB_CLIENT_ID` already exists, new credentials are saved as `GENERATED_GITHUB_CLIENT_ID`
+2. If that also exists, it becomes `GENERATED_2_GITHUB_CLIENT_ID`, and so on
+
+⚠️ **Important:** You'll need to manually update your application to use the new keys, or replace the old values.
 
 ## Troubleshooting
 

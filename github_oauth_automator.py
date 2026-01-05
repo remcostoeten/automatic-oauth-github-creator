@@ -33,6 +33,9 @@ from pathlib import Path
 from typing import Optional, List, Union
 
 from playwright.sync_api import sync_playwright, Page, BrowserContext, Playwright, ElementHandle
+import platform
+import subprocess
+import re
 
 # Configure logging to look nice in the terminal
 # Configure logging with custom colors
@@ -164,6 +167,7 @@ class OAuthCredentials:
     client_id: str
     client_secret: str
     app_name: str
+    app_url: str = ""
     
     def to_env_string(self) -> str:
         """Returns the credentials formatted for a .env file."""
@@ -171,6 +175,15 @@ class OAuthCredentials:
 # GitHub OAuth Credentials ({self.app_name})
 GITHUB_CLIENT_ID="{self.client_id}"
 GITHUB_CLIENT_SECRET="{self.client_secret}"
+'''
+    
+    def to_env_string_with_prefix(self, prefix: str = "") -> str:
+        """Returns credentials formatted for .env file with optional prefix."""
+        key_prefix = f"{prefix}_" if prefix else ""
+        return f'''
+# GitHub OAuth Credentials ({self.app_name})
+{key_prefix}GITHUB_CLIENT_ID="{self.client_id}"
+{key_prefix}GITHUB_CLIENT_SECRET="{self.client_secret}"
 '''
     
     def verify(self) -> bool:
@@ -619,6 +632,7 @@ class GitHubAutomator:
         
         # Wait for navigation to the app settings page
         self.page.wait_for_url("**/settings/applications/**")
+        app_url = self.page.url
         
         # 1. Extract Client ID
         logger.info("   Extracting Client ID...")
@@ -639,7 +653,8 @@ class GitHubAutomator:
         return OAuthCredentials(
             client_id=client_id,
             client_secret=client_secret,
-            app_name=config.name
+            app_name=config.name,
+            app_url=app_url
         )
 
     def _generate_secret(self):
@@ -745,11 +760,12 @@ def print_menu():
     print("\033[93m│\033[0m  \033[1mWhat would you like to do?\033[0m         \033[93m│\033[0m")
     print("\033[93m├─────────────────────────────────────┤\033[0m")
     print("\033[93m│\033[0m  \033[92m1.\033[0m Create new OAuth app            \033[93m│\033[0m")
-    print("\033[93m│\033[0m  \033[92m2.\033[0m Verify existing credentials     \033[93m│\033[0m")
-    print("\033[93m│\033[0m  \033[92m3.\033[0m View saved credentials          \033[93m│\033[0m")
-    print("\033[93m│\033[0m  \033[92m4.\033[0m Delete OAuth app from GitHub    \033[93m│\033[0m")
-    print("\033[93m│\033[0m  \033[92m5.\033[0m Clear browser session           \033[93m│\033[0m")
-    print("\033[93m│\033[0m  \033[91m6.\033[0m Exit                            \033[93m│\033[0m")
+    print("\033[93m│\033[0m  \033[92m2.\033[0m Create DEV + PROD apps          \033[93m│\033[0m")
+    print("\033[93m│\033[0m  \033[92m3.\033[0m Verify existing credentials     \033[93m│\033[0m")
+    print("\033[93m│\033[0m  \033[92m4.\033[0m View saved credentials          \033[93m│\033[0m")
+    print("\033[93m│\033[0m  \033[92m5.\033[0m Delete OAuth app from GitHub    \033[93m│\033[0m")
+    print("\033[93m│\033[0m  \033[92m6.\033[0m Clear browser session           \033[93m│\033[0m")
+    print("\033[93m│\033[0m  \033[91m7.\033[0m Exit                            \033[93m│\033[0m")
     print("\033[93m└─────────────────────────────────────┘\033[0m")
 
 
@@ -777,6 +793,167 @@ def prompt_yes_no(text: str, default: bool = True) -> bool:
     if not response:
         return default
     return response in ['y', 'yes', 'true', '1']
+
+
+def copy_to_clipboard(text: str) -> bool:
+    """
+    Copy text to clipboard. Works on Mac (pbcopy) and Linux (xclip/xsel).
+    Returns True on success, False on failure.
+    """
+    system = platform.system()
+    try:
+        if system == "Darwin":  # macOS
+            subprocess.run(["pbcopy"], input=text.encode(), check=True)
+            logger.info("✅ Copied to clipboard (pbcopy)")
+            return True
+        else:  # Linux
+            # Try xclip first, then xsel
+            try:
+                subprocess.run(["xclip", "-selection", "clipboard"], 
+                             input=text.encode(), check=True)
+                logger.info("✅ Copied to clipboard (xclip)")
+                return True
+            except FileNotFoundError:
+                try:
+                    subprocess.run(["xsel", "--clipboard", "--input"], 
+                                 input=text.encode(), check=True)
+                    logger.info("✅ Copied to clipboard (xsel)")
+                    return True
+                except FileNotFoundError:
+                    logger.warning("⚠️  No clipboard tool found. Install xclip or xsel.")
+                    return False
+    except Exception as e:
+        logger.warning(f"⚠️  Could not copy to clipboard: {e}")
+        return False
+
+
+def select_env_file() -> str:
+    """
+    Prompt user to select which .env file to write to.
+    Returns the filename as a string.
+    """
+    print("\n\033[93m┌─────────────────────────────────────┐\033[0m")
+    print("\033[93m│\033[0m  \033[1mWhich .env file?\033[0m                  \033[93m│\033[0m")
+    print("\033[93m├─────────────────────────────────────┤\033[0m")
+    print("\033[93m│\033[0m  \033[92m1.\033[0m .env                           \033[93m│\033[0m")
+    print("\033[93m│\033[0m  \033[92m2.\033[0m .env.local                     \033[93m│\033[0m")
+    print("\033[93m│\033[0m  \033[92m3.\033[0m .env.production                \033[93m│\033[0m")
+    print("\033[93m└─────────────────────────────────────┘\033[0m")
+    
+    choice = input("\n\033[94m➤\033[0m Enter choice (1-3): ").strip()
+    
+    if choice == "1":
+        return ".env"
+    elif choice == "2":
+        return ".env.local"
+    elif choice == "3":
+        return ".env.production"
+    else:
+        print("\033[93m⚠️  Invalid choice, defaulting to .env\033[0m")
+        return ".env"
+
+
+def get_unique_key_prefix(env_path: Path, base_key: str = "GITHUB_CLIENT_ID") -> str:
+    """
+    Determine the appropriate prefix for a key to avoid overwrites.
+    Returns empty string if key doesn't exist.
+    Returns 'GENERATED' if base key exists.
+    Returns 'GENERATED_2', 'GENERATED_3', etc. for subsequent duplicates.
+    """
+    if not env_path.exists():
+        return ""
+    
+    content = env_path.read_text()
+    
+    # Check if base key exists (without any prefix)
+    # Match exact key at start of line or after newline
+    pattern = rf'^{base_key}=|^{base_key}="'
+    if not re.search(pattern, content, re.MULTILINE):
+        return ""
+    
+    # Key exists, find next available prefix
+    if not re.search(r'^GENERATED_GITHUB_CLIENT_ID=', content, re.MULTILINE):
+        return "GENERATED"
+    
+    # Find the next available number
+    n = 2
+    while re.search(rf'^GENERATED_{n}_GITHUB_CLIENT_ID=', content, re.MULTILINE):
+        n += 1
+    return f"GENERATED_{n}"
+
+
+def write_credentials_to_env(creds: 'OAuthCredentials', env_file: str, prefix: str = "") -> bool:
+    """
+    Write credentials to an .env file with smart duplicate handling.
+    Never overwrites existing keys - uses prefixes instead.
+    Returns True on success.
+    """
+    env_path = Path(env_file)
+    
+    # Determine if we need a prefix for duplicate handling
+    actual_prefix = prefix
+    if not prefix:
+        actual_prefix = get_unique_key_prefix(env_path)
+    
+    # Get the formatted credentials
+    if actual_prefix:
+        env_content = creds.to_env_string_with_prefix(actual_prefix)
+        print(f"\n\033[93m⚠️  Warning: Keys already exist in {env_file}!\033[0m")
+        print(f"    Using prefix: \033[96m{actual_prefix}_\033[0m")
+        print(f"    Your new keys will be:")
+        print(f"      • \033[96m{actual_prefix}_GITHUB_CLIENT_ID\033[0m")
+        print(f"      • \033[96m{actual_prefix}_GITHUB_CLIENT_SECRET\033[0m")
+        print(f"\n\033[91m    ⚠️  You need to update your application to use these new keys,\033[0m")
+        print(f"\033[91m       or manually replace the old values!\033[0m\n")
+    else:
+        env_content = creds.to_env_string()
+    
+    try:
+        # Append to file (create if doesn't exist)
+        with open(env_path, "a") as f:
+            f.write(env_content)
+        logger.info(f"✅ Credentials saved to {env_file}")
+        return True
+    except Exception as e:
+        logger.error(f"❌ Failed to write to {env_file}: {e}")
+        return False
+
+
+def prompt_output_options() -> tuple:
+    """
+    Prompt user for how they want to handle credentials.
+    Returns (copy_clipboard: bool, write_env: bool, env_file: str or None)
+    """
+    print("\n\033[93m┌─────────────────────────────────────┐\033[0m")
+    print("\033[93m│\033[0m  \033[1mHow to save credentials?\033[0m          \033[93m│\033[0m")
+    print("\033[93m├─────────────────────────────────────┤\033[0m")
+    print("\033[93m│\033[0m  \033[92m1.\033[0m Copy to clipboard              \033[93m│\033[0m")
+    print("\033[93m│\033[0m  \033[92m2.\033[0m Write to .env file             \033[93m│\033[0m")
+    print("\033[93m│\033[0m  \033[92m3.\033[0m Both (clipboard + .env)        \033[93m│\033[0m")
+    print("\033[93m│\033[0m  \033[92m4.\033[0m Just display (no save)         \033[93m│\033[0m")
+    print("\033[93m└─────────────────────────────────────┘\033[0m")
+    
+    choice = input("\n\033[94m➤\033[0m Enter choice (1-4): ").strip()
+    
+    copy_clipboard = False
+    write_env = False
+    env_file = None
+    
+    if choice == "1":
+        copy_clipboard = True
+    elif choice == "2":
+        write_env = True
+        env_file = select_env_file()
+    elif choice == "3":
+        copy_clipboard = True
+        write_env = True
+        env_file = select_env_file()
+    elif choice == "4":
+        pass  # Just display
+    else:
+        print("\033[93m⚠️  Invalid choice, just displaying.\033[0m")
+    
+    return (copy_clipboard, write_env, env_file)
 
 
 def interactive_create():
@@ -807,7 +984,8 @@ def interactive_create():
     else:
         password = prompt("GitHub password (for sudo mode)", password=True)
     
-    write_env = prompt_yes_no("Save to .env file?", True)
+    # New output options
+    copy_clipboard, write_env, env_file = prompt_output_options()
     verify = prompt_yes_no("Verify credentials after creation?", True)
     
     print("\n\033[90m" + "─" * 40 + "\033[0m")
@@ -816,7 +994,8 @@ def interactive_create():
     print(f"   • Homepage:     \033[96m{homepage_url}\033[0m")
     print(f"   • Callback:     \033[96m{callback_url}\033[0m")
     print(f"   • Password:     \033[96m{'••••••••' if password else '(manual entry)'}\033[0m")
-    print(f"   • Write .env:   \033[96m{'Yes' if write_env else 'No'}\033[0m")
+    print(f"   • Clipboard:    \033[96m{'Yes' if copy_clipboard else 'No'}\033[0m")
+    print(f"   • Write to:     \033[96m{env_file if write_env else 'None'}\033[0m")
     print(f"   • Verify:       \033[96m{'Yes' if verify else 'No'}\033[0m")
     print("\033[90m" + "─" * 40 + "\033[0m\n")
     
@@ -846,16 +1025,262 @@ def interactive_create():
         print("─" * 60 + "\033[0m")
         print(creds.to_env_string())
         
-        if write_env:
-            with open(".env", "a") as f:
-                f.write(creds.to_env_string())
-            logger.info("✅ Saved to .env file")
+        # Handle credential output
+        if copy_clipboard:
+            copy_to_clipboard(creds.to_env_string())
+        
+        if write_env and env_file:
+            write_credentials_to_env(creds, env_file)
         
         if verify:
             if creds.verify():
                 logger.info("🎉 All checks passed!")
             else:
                 logger.warning("⚠️  Verification had some warnings - credentials may still work")
+        
+        # Testing mode: Offer to delete the app immediately
+        print("\n\033[90m" + "─" * 40 + "\033[0m")
+        if prompt_yes_no("TEST MODE: Delete this app now?", False):
+            if creds.app_url:
+                if automator.delete_oauth_app(creds.app_url, creds.app_name):
+                     print(f"\033[92m✅ Deleted {creds.app_name}\033[0m")
+            else:
+                logger.warning("⚠️  Cannot delete: App URL was not captured")
+        
+        time.sleep(2)
+        
+    except Exception as e:
+        logger.error(f"Automation failed: {e}")
+        input("Press Enter to close browser...")
+        
+    finally:
+        browser_mgr.close()
+
+
+def prompt_dual_env_options() -> tuple:
+    """
+    Prompt user for how they want to handle credentials in Dual Mode.
+    Returns (copy_clipboard: bool, write_mode: str, dev_file: str, prod_file: str)
+    write_mode is 'combined', 'split', or 'none'
+    """
+    print("\n\033[93m┌─────────────────────────────────────┐\033[0m")
+    print("\033[93m│\033[0m  \033[1mHow to save credentials?\033[0m          \033[93m│\033[0m")
+    print("\033[93m├─────────────────────────────────────┤\033[0m")
+    print("\033[93m│\033[0m  \033[92m1.\033[0m Copy to clipboard only         \033[93m│\033[0m")
+    print("\033[93m│\033[0m  \033[92m2.\033[0m Save both to same .env file    \033[93m│\033[0m")
+    print("\033[93m│\033[0m  \033[92m3.\033[0m Split (DEV→.env, PROD→.env.prod)\033[93m│\033[0m")
+    print("\033[93m│\033[0m  \033[92m4.\033[0m Just display (no save)         \033[93m│\033[0m")
+    print("\033[93m└─────────────────────────────────────┘\033[0m")
+    
+    choice = input("\n\033[94m➤\033[0m Enter choice (1-4): ").strip()
+    
+    copy_clipboard = choice in ["1", "2", "3"]
+    write_mode = "none"
+    dev_file = None
+    prod_file = None
+    
+    if choice == "2":
+        write_mode = "combined"
+        print("\n\033[1mSelect file for BOTH apps:\033[0m")
+        dev_file = select_env_file()
+        prod_file = dev_file
+    elif choice == "3":
+        write_mode = "split"
+        print("\n\033[1mSelect file for DEV app:\033[0m")
+        print("\033[90m(Usually .env or .env.local)\033[0m")
+        dev_file = select_env_file()
+        
+        print("\n\033[1mSelect file for PROD app:\033[0m")
+        print("\033[90m(Usually .env.production)\033[0m")
+        prod_file = select_env_file()
+    
+    return (copy_clipboard, write_mode, dev_file, prod_file)
+
+
+def interactive_create_dual():
+    """Interactive OAuth app creation for both DEV and PROD environments."""
+    print("\n\033[1m📝 Create DEV + PROD OAuth Applications\033[0m")
+    print("\033[90m" + "─" * 40 + "\033[0m\n")
+    
+    # Load .env file if it exists
+    from dotenv import load_dotenv
+    load_dotenv()
+    
+    # Get defaults from environment variables
+    default_app_name = os.getenv("OAUTH_APP_NAME", "my-oauth-app")
+    default_dev_homepage = os.getenv("OAUTH_BASE_URL", "http://localhost:3000")
+    default_prod_homepage = os.getenv("OAUTH_PROD_BASE_URL", "https://your-production-domain.com")
+    callback_path = "/api/auth/callback/github"
+    default_password = os.getenv("GITHUB_PASSWORD", "")
+    
+    print("\033[96mℹ️  This will create TWO OAuth apps:\033[0m")
+    print("   1. DEV app (for local development)")
+    print("   2. PROD app (for production)\n")
+    print("\033[96mℹ️  Both apps will use the same callback path:\033[0m")
+    print(f"   {callback_path}\n")
+    
+    # Gather inputs
+    base_app_name = prompt("Base application name", default_app_name)
+    dev_homepage = prompt("DEV Homepage URL", default_dev_homepage)
+    prod_homepage = prompt("PROD Homepage URL", default_prod_homepage)
+    custom_callback_path = prompt("Callback path (same for both)", callback_path)
+    
+    dev_callback = f"{dev_homepage}{custom_callback_path}"
+    prod_callback = f"{prod_homepage}{custom_callback_path}"
+    
+    # Only prompt for password if not in env
+    if default_password:
+        password = default_password
+        print(f"\033[94m➤\033[0m GitHub password (for sudo mode): \033[90m(loaded from .env)\033[0m")
+    else:
+        password = prompt("GitHub password (for sudo mode)", password=True)
+    
+    # Dual Mode Output Options
+    copy_clipboard, write_mode, dev_file, prod_file = prompt_dual_env_options()
+    verify = prompt_yes_no("Verify credentials after creation?", True)
+    
+    # Build app names
+    dev_app_name = f"{base_app_name}-dev"
+    prod_app_name = f"{base_app_name}-prod"
+    
+    print("\n\033[90m" + "─" * 50 + "\033[0m")
+    print("\033[1m📋 Configuration Summary:\033[0m")
+    print("\033[90m" + "─" * 50 + "\033[0m")
+    print("\033[93m  DEV App:\033[0m")
+    print(f"   • Name:         \033[96m{dev_app_name}\033[0m")
+    print(f"   • Homepage:     \033[96m{dev_homepage}\033[0m")
+    print(f"   • Callback:     \033[96m{dev_callback}\033[0m")
+    if write_mode == "split":
+        print(f"   • Save to:      \033[96m{dev_file}\033[0m")
+    
+    print()
+    print("\033[93m  PROD App:\033[0m")
+    print(f"   • Name:         \033[96m{prod_app_name}\033[0m")
+    print(f"   • Homepage:     \033[96m{prod_homepage}\033[0m")
+    print(f"   • Callback:     \033[96m{prod_callback}\033[0m")
+    if write_mode == "split":
+        print(f"   • Save to:      \033[96m{prod_file}\033[0m")
+    
+    print("\033[90m" + "─" * 50 + "\033[0m")
+    print(f"   • Password:     \033[96m{'••••••••' if password else '(manual entry)'}\033[0m")
+    print(f"   • Clipboard:    \033[96m{'Yes' if copy_clipboard else 'No'}\033[0m")
+    
+    if write_mode == "combined":
+        print(f"   • Write BOTH to:\033[96m{dev_file}\033[0m")
+    elif write_mode == "none":
+        print(f"   • Write to .env:\033[96mNo\033[0m")
+        
+    print(f"   • Verify:       \033[96m{'Yes' if verify else 'No'}\033[0m")
+    print("\033[90m" + "─" * 50 + "\033[0m\n")
+    
+    if not prompt_yes_no("Proceed with creating BOTH apps?", True):
+        print("\033[93m⚠️  Cancelled.\033[0m")
+        return
+    
+    # Run the automation
+    browser_mgr = BrowserManager(headless=False)
+    all_creds_text = ""
+    created_creds = []
+    
+    try:
+        page = browser_mgr.start()
+        automator = GitHubAutomator(page, password=password if password else None)
+        
+        if not automator.ensure_logged_in():
+            return
+        
+        # Create DEV app
+        print("\n\033[93m" + "═" * 50)
+        print(" Creating DEV App...")
+        print("═" * 50 + "\033[0m\n")
+        
+        dev_config = OAuthConfig(
+            name=dev_app_name,
+            homepage_url=dev_homepage,
+            callback_url=dev_callback
+        )
+        dev_creds = automator.create_oauth_app(dev_config)
+        created_creds.append(("DEV", dev_creds))
+        
+        print("\n\033[92m✅ DEV app created successfully!\033[0m")
+        
+        # Create PROD app
+        print("\n\033[93m" + "═" * 50)
+        print(" Creating PROD App...")
+        print("═" * 50 + "\033[0m\n")
+        
+        prod_config = OAuthConfig(
+            name=prod_app_name,
+            homepage_url=prod_homepage,
+            callback_url=prod_callback
+        )
+        prod_creds = automator.create_oauth_app(prod_config)
+        created_creds.append(("PROD", prod_creds))
+        
+        print("\n\033[92m✅ PROD app created successfully!\033[0m")
+        
+        # Display results
+        print("\n\033[92m" + "═" * 60)
+        print(" SUCCESS: Both Applications Created!")
+        print("═" * 60 + "\033[0m")
+        
+        # Format credentials for DEV
+        dev_env_text = f'''
+# GitHub OAuth Credentials - DEV ({dev_creds.app_name})
+GITHUB_CLIENT_ID="{dev_creds.client_id}"
+GITHUB_CLIENT_SECRET="{dev_creds.client_secret}"
+'''
+        
+        # Format credentials for PROD (with different key names for clarity)
+        prod_env_text = f'''
+# GitHub OAuth Credentials - PROD ({prod_creds.app_name})
+GITHUB_CLIENT_ID_PROD="{prod_creds.client_id}"
+GITHUB_CLIENT_SECRET_PROD="{prod_creds.client_secret}"
+'''
+        
+        all_creds_text = dev_env_text + prod_env_text
+        print(all_creds_text)
+        
+        # Handle credential output
+        if copy_clipboard:
+            copy_to_clipboard(all_creds_text)
+        
+        if write_mode != "none" and dev_file:
+            # Write DEV credentials (always standard keys)
+            write_credentials_to_env(dev_creds, dev_file)
+            
+            if write_mode == "combined":
+                # Combined: Write PROD with _PROD suffix to same file
+                env_path = Path(dev_file)
+                try:
+                    with open(env_path, "a") as f:
+                        f.write(prod_env_text)
+                    logger.info(f"✅ PROD credentials saved to {dev_file} (with _PROD suffix)")
+                except Exception as e:
+                    logger.error(f"❌ Failed to write PROD credentials: {e}")
+                    
+            elif write_mode == "split" and prod_file:
+                # Split: Write PROD with standard keys to separate file
+                write_credentials_to_env(prod_creds, prod_file)
+        
+        if verify:
+            print("\n\033[1m🔍 Verifying credentials...\033[0m")
+            for env_name, creds in created_creds:
+                print(f"\n  Verifying {env_name}:")
+                if creds.verify():
+                    print(f"  \033[92m✅ {env_name} credentials valid!\033[0m")
+                else:
+                    print(f"  \033[93m⚠️  {env_name} verification had warnings\033[0m")
+        
+        # Testing mode: Offer to delete the apps immediately
+        print("\n\033[90m" + "─" * 40 + "\033[0m")
+        if prompt_yes_no("TEST MODE: Delete BOTH apps now?", False):
+            for env_name, creds in created_creds:
+                if creds.app_url:
+                    if automator.delete_oauth_app(creds.app_url, creds.app_name):
+                         print(f"\033[92m✅ Deleted {creds.app_name} ({env_name})\033[0m")
+                else:
+                    logger.warning(f"⚠️  Cannot delete {env_name}: App URL was not captured")
         
         time.sleep(2)
         
@@ -1054,23 +1479,25 @@ def interactive_main():
     
     while True:
         print_menu()
-        choice = input("\n\033[94m➤\033[0m Enter choice (1-6): ").strip()
+        choice = input("\n\033[94m➤\033[0m Enter choice (1-7): ").strip()
         
         if choice == "1":
             interactive_create()
         elif choice == "2":
-            interactive_verify()
+            interactive_create_dual()
         elif choice == "3":
-            view_saved_credentials()
+            interactive_verify()
         elif choice == "4":
-            interactive_delete()
+            view_saved_credentials()
         elif choice == "5":
-            clear_session()
+            interactive_delete()
         elif choice == "6":
+            clear_session()
+        elif choice == "7":
             print("\n\033[96m👋 Goodbye!\033[0m\n")
             break
         else:
-            print("\033[91m❌ Invalid choice. Please enter 1-6.\033[0m")
+            print("\033[91m❌ Invalid choice. Please enter 1-7.\033[0m")
 
 
 def main():
