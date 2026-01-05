@@ -855,7 +855,7 @@ def print_menu():
         "\033[93m│\033[0m  \033[92m3.\033[0m Verify existing credentials     \033[93m│\033[0m"
     )
     print(
-        "\033[93m│\033[0m  \033[92m4.\033[0m View saved credentials          \033[93m│\033[0m"
+        "\033[93m│\033[0m  \033[92m4.\033[0m View saved credentials (.env)   \033[93m│\033[0m"
     )
     print(
         "\033[93m│\033[0m  \033[92m5.\033[0m Delete OAuth app from GitHub    \033[93m│\033[0m"
