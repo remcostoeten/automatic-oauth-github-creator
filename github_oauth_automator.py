@@ -607,9 +607,14 @@ class GitHubAutomator:
         try:
             # Navigate to the app's settings page
             logger.info(f"   Navigating to {app_url}...")
-            self.page.goto(app_url, timeout=20000)
+            # Use domcontentloaded for faster interaction, networkidle might be too strict
+            response = self.page.goto(app_url, timeout=20000, wait_until="domcontentloaded")
+            if not response:
+                logger.warning("   Navigation response was empty, but proceeding...")
+            
+            # Check if we got redirected to login or sudo mode
+            time.sleep(1)
             self.handle_sudo_mode()
-
             time.sleep(1)
 
             # Scroll to bottom where delete button usually is
