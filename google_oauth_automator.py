@@ -193,9 +193,8 @@ class GoogleAutomator:
     Functions here correspond to specific high-level tasks on the website.
     """
 
-    def __init__(self, page: Page, password: Optional[str] = None):
+    def __init__(self, page: Page):
         self.page = page
-        self.password = password
 
     def ensure_logged_in(self) -> bool:
         """
@@ -525,13 +524,13 @@ def interactive_create():
 
     default_app_name = os.getenv("GOOGLE_OAUTH_APP_NAME", "my-google-app")
     default_homepage = os.getenv("OAUTH_BASE_URL", "http://localhost:3000")
-    default_callback = os.getenv(
-        "OAUTH_CALLBACK_URL", f"{default_homepage}/api/auth/callback/google"
-    )
-
     app_name = prompt("Application name", default_app_name)
     app_type = prompt("Application type (web/desktop)", "web").lower()
     homepage_url = prompt("Homepage URL", default_homepage).rstrip("/")
+    
+    default_callback = os.getenv(
+        "OAUTH_CALLBACK_URL", f"{homepage_url}/api/auth/callback/google"
+    )
     callback_url = prompt("Callback URL", default_callback)
 
     javascript_origins = []
@@ -646,7 +645,6 @@ def write_google_credentials_to_env(
     creds: "GoogleOAuthCredentials",
     env_file: str,
     prefix: str = "",
-    force_prefix: bool = False,
 ) -> bool:
     """
     Write Google OAuth credentials to an .env file.

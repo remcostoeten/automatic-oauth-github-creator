@@ -3,7 +3,10 @@
 
 # Load .env file if it exists
 if [ -f .env ]; then
-    export $(cat .env | grep -v '^#' | xargs)
+  set -a
+  # shellcheck disable=SC1091
+  . .env
+  set +a
 fi
 
 # Run the Google OAuth automator
