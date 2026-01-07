@@ -470,7 +470,8 @@ class GoogleAutomator:
                 )
                 if client_id_el:
                     return client_id_el.inner_text().strip()
-            except:
+            except Exception as e:
+                logger.debug(f"DEBUG: Client ID extraction failed: {e}")
                 pass
             time.sleep(0.5)
 
@@ -493,7 +494,8 @@ class GoogleAutomator:
                 )
                 if client_secret_el:
                     return client_secret_el.inner_text().strip()
-            except:
+            except Exception as e:
+                logger.debug(f"DEBUG: Client Secret extraction failed: {e}")
                 pass
             time.sleep(0.5)
 
@@ -730,9 +732,7 @@ def main():
         print(creds.to_env_string())
 
         if args.write_env:
-            with open(".env", "a") as f:
-                f.write(creds.to_env_string())
-            logger.info("✅ Saved to .env file")
+            write_google_credentials_to_env(creds, ".env")
 
         time.sleep(3)
 
