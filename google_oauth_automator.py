@@ -528,9 +528,7 @@ def interactive_create():
     app_type = prompt("Application type (web/desktop)", "web").lower()
     homepage_url = prompt("Homepage URL", default_homepage).rstrip("/")
     
-    default_callback = os.getenv(
-        "OAUTH_CALLBACK_URL", f"{homepage_url}/api/auth/callback/google"
-    )
+    default_callback = f"{homepage_url}/api/auth/callback/google"
     callback_url = prompt("Callback URL", default_callback)
 
     javascript_origins = []
