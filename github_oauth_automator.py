@@ -1208,14 +1208,13 @@ def interactive_create():
     default_app_name = os.getenv("OAUTH_APP_NAME", "my-oauth-app")
     default_description = os.getenv("OAUTH_APP_DESCRIPTION", "Created via automation")
     default_homepage = os.getenv("OAUTH_BASE_URL", "http://localhost:3000")
-    default_callback = os.getenv(
-        "OAUTH_CALLBACK_URL", f"{default_homepage}/api/auth/callback/github"
-    )
     default_password = os.getenv("GITHUB_PASSWORD", "")
 
     # Gather inputs with .env defaults
     app_name = prompt("Application name", default_app_name)
     homepage_url = prompt("Homepage URL", default_homepage).rstrip("/")
+    
+    default_callback = f"{homepage_url}/api/auth/callback/github"
     callback_url = prompt("Callback URL", default_callback)
 
     # Only prompt for password if not in env

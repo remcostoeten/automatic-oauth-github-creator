@@ -3,16 +3,35 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.4.0] - 2026-01-07
+
+### New Features
+- **Global Installation**: 
+    - Added `pyproject.toml` for proper Python packaging
+    - Created `install.sh` script for one-command global installation via `uv tool install`
+    - New CLI commands: `create-github-oauth` and `create-google-oauth` work from any directory
+    - Updated README with installation options (local vs global usage)
+
+### Bug Fixes
+- **Dynamic Callback URLs**: Fixed issue where callback URL would stay on default port (3000) even when homepage URL was changed
+    - Callback URL now correctly derives from the user-provided homepage URL in real-time
+- **README Media**: Converted demo video to optimized GIF (2.5MB) for proper GitHub display
+
+### Improvements
+- Fixed syntax error in shebang line
+
+---
+
 ## [1.3.0] - 2026-01-06
 
-### 🔐 Secure Audit Logging
+### Secure Audit Logging
 - **Encrypted Local History**: 
     - Automatically logs all generated credentials (Client ID, Secret, App Name) to an encrypted local file (`~/.oauth-automator/github/history.enc`).
     - Uses **Fernet (AES-128)** encryption with a strictly permissioned key file (`~/.oauth-automator/.key` mode 600).
     - **Opt-In**: Enabled via `setup.sh` prompt or Menu Option 7.
 - **Audit Viewer**: Interactive CLI to view logged history and selectively decrypt/reveal secrets.
 
-### 🛡️ Reliability & Edge Cases
+### Reliability & Edge Cases
 - **Duplicate App Name Protection**: 
     - Detects if GitHub rejects an app name ("Name is already taken").
     - Interactively prompts for a new name and auto-retries submission without crashing.
@@ -20,13 +39,13 @@ All notable changes to this project will be documented in this file.
     - `setup.sh` now detects existing `uv` and Playwright installations to skip redundant downloads (~30s saved).
     - Checks for system browsers (Brave/Chrome) to avoid unnecessary Playwright binary installs.
 
-### ✨ Features
+### Features
 - **Dual Environment Creation**: Generate DEV and PROD apps simultaneously.
 - **Split Configuration**: Save DEV credentials to `.env.local` and PROD to `.env.production`.
 - **Smart Env Handling**: Auto-archives old keys (`# OLD_GITHUB_...`) instead of overwriting.
 - **Clipboard Sync**: Auto-copies credentials to system clipboard (xclip/pbcopy).
 
-### 🐛 Bug Fixes
+### Bug Fixes
 - **Deletion Hang**: Fixed an issue where the script would freeze during app deletion due to strict network idle checks (switched to `domcontentloaded`).
 - **URL Sanitization**: Automatically strips trailing slashes from homepage URLs.
 

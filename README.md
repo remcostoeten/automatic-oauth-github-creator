@@ -1,46 +1,87 @@
-# GitHub OAuth Automator
+# OAuth Automator (GitHub + Google)
 
 For people who value their time<br>
-<small>I obviously don’t, as I’ve written this tool</small>
+<small>I obviously don't, as I've written this tool</small>
 
-This tool automates the tedious process of creating GitHub OAuth applications, since the GitHub API does not allow it.
+This tool automates the tedious process of creating OAuth applications for both GitHub and Google, since both platforms have deprecated API endpoints for creating new OAuth apps.
 
 If you’re concerned about security, read how this tool [works](#how-it-works).
 
-<video src="https://github.com/remcostoeten/automatic-oauth-github-creator/files/DEMO.webm" controls="controls" style="max-width: 100%;">
-  Your browser does not support the video tag.
-</video>
+![Demo](DEMO.gif)
 
 ## Quick Start
 
+### Option A: Local Usage (Recommended for First-Time Users)
+
 **1. Setup (first time only)**  
-This program requires a few dependencies, which will be handled automatically by `uv` if you run the interactive setup script:
+Run the interactive setup script to configure dependencies and settings:
 
 ```bash
 ./setup.sh
 ```
 
-_It will verify Python, install dependencies (using `uv` for speed), and help you link your existing Brave or Chrome session (optional). You can either choose to stay logged in permanently or run [...]
+_It will verify Python, install dependencies (using `uv` for speed), and help you link your existing Brave or Chrome session (optional)._
 
-**2. Run**  
-Once the prerequisites are installed, you can simply run:
+**2. Run**
 
+For GitHub OAuth:
 ```bash
 ./run.sh
 ```
 
-This will prompt you for the required config values, write them to a `.env` file, and then open a browser to create the app.
+For Google OAuth:
+```bash
+python google_oauth_automator.py
+```
+
+---
+
+### Option B: Global Installation (Use From Anywhere)
+
+Install globally to use simple commands from any directory:
+
+```bash
+./install.sh
+```
+
+Then run from anywhere:
+```bash
+create-github-oauth
+create-google-oauth
+```
+
+### Update
+
+To update to the latest version, pull the changes and run install again:
+
+```bash
+git pull
+./install.sh
+```
+
+---
+
+Both options will prompt you for configuration values and automatically save credentials to `.env`.
 
 ## Features
 
-- Automatic OAuth app creation  
-- **Create DEV + PROD apps at once** - Generate credentials for both environments simultaneously
-- Automatic client secret generation  
-- **Flexible credential output:**
-  - Copy to clipboard (Mac/Linux)
-  - Write to `.env`, `.env.local`, or `.env.production`
-- **Smart duplicate handling** - Never overwrites existing keys, uses `GENERATED_` prefixes
-- Allow deletion of any existing app through the GitHub API  
+- **GitHub OAuth:**
+  - Automatic OAuth app creation
+  - Create DEV + PROD apps at once - Generate credentials for both environments simultaneously
+  - Automatic client secret generation
+  - Allow deletion of any existing app through the GitHub API
+
+- **Google OAuth:**
+  - Automatic OAuth 2.0 client ID creation
+  - Automatic consent screen setup
+  - Project selection/creation support
+  - Support for Web and Desktop application types
+
+- **Shared Features:**
+  - **Flexible credential output:**
+    - Copy to clipboard (Mac/Linux)
+    - Write to `.env`, `.env.local`, or `.env.production`
+  - **Smart duplicate handling** - Never overwrites existing keys, uses `GENERATED_` prefixes  
 
 ## How it works
 
@@ -54,7 +95,7 @@ GitHub deprecated the API endpoint for creating new OAuth apps. This tool:
 
 ## Configuration
 
-The `./setup.sh` script will create a `.env` file for you:
+The `./setup.sh` script will create a `.env` file for you. For GitHub:
 
 ```ini
 OAUTH_APP_NAME="My App"
@@ -63,6 +104,15 @@ OAUTH_BASE_URL="http://localhost:3000"
 OAUTH_CALLBACK_URL="http://localhost:3000/api/auth/callback/github"
 OAUTH_PROD_BASE_URL="https://your-production-domain.com"  # For DEV+PROD mode
 OAUTH_PROD_CALLBACK_URL="https://your-production-domain.com/api/auth/callback/github"
+```
+
+For Google:
+
+```ini
+GOOGLE_OAUTH_APP_NAME="My Google App"
+GOOGLE_PROJECT_ID="your-google-cloud-project-id"
+OAUTH_BASE_URL="http://localhost:3000"
+OAUTH_CALLBACK_URL="http://localhost:3000/api/auth/callback/google"
 BROWSER_PROFILE_PATH="/home/user/.config/BraveSoftware/Brave-Browser/Default" # Optional
 ```
 
@@ -87,9 +137,7 @@ When writing credentials to an existing `.env` file, the script will **never ove
 
 ---
 
-Automatic Google OAuth is in the works.
-
-xxx,  
+xxx,
 Remco Stoeten
 
 Stars will make my e-penor grow, so please do.
