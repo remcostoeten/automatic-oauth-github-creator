@@ -7,9 +7,7 @@ This tool automates the tedious process of creating GitHub OAuth applications, s
 
 If you’re concerned about security, read how this tool [works](#how-it-works).
 
-<video src="https://github.com/remcostoeten/automatic-oauth-github-creator/files/DEMO.webm" controls="controls" style="max-width: 100%;">
-  Your browser does not support the video tag.
-</video>
+![Demo](media/demo.gif)
 
 ## Quick Start
 
